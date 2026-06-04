@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__handle {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: crosshair;
+}
+
+.react-flow__handle::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 50%;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.5);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+}
+
+.react-flow__minimap {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.react-flow__controls-button {
+  border: none !important;
+  background: white !important;
+  transition: background 0.15s ease;
+}
+
+.react-flow__controls-button:hover {
+  background: #f1f5f9 !important;
+}
+
+.katex { font-size: 0.85em !important; }
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.data-handle {
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  pointer-events: all !important;
+}
+
+.data-handle-hidden {
+  opacity: 0 !important;
+}
+
+.data-handle-hidden:hover,
+.react-flow__handle.data-handle-hidden:hover {
+  opacity: 1 !important;
+  transform: scale(1.4) !important;
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.8), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #4f46e5 !important;
+  stroke-width: 2.5 !important;
+  filter: drop-shadow(0 0 6px rgba(79, 70, 229, 0.5)) drop-shadow(0 2px 4px rgba(79, 70, 229, 0.3));
+  transition: all 0.2s ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 2 !important;
+  filter: drop-shadow(0 0 4px rgba(71, 85, 105, 0.4));
+}
