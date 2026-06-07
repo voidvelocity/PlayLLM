@@ -10,6 +10,8 @@ PlayLLM 是一个基于 React + TypeScript 的可视化计算图编辑器，支�
 - 模型结构分析与文档化
 - 教学演示与架构探索
 
+![PlayLLM Screenshot](docs/playllm.jpeg)
+
 ### 功能特性
 
 - **可视化编辑**: 拖拽式节点放置，直观连线操作
