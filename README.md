@@ -82,6 +82,18 @@ npm run dev
 
 前端会自动代理 API 请求到后端。
 
+### Docker 部署
+
+```bash
+# 构建镜像
+docker build -t playllm:latest .
+
+# 运行容器
+docker run -d --name playllm -p 3000:3000 -v playllm-data:/app/server-data playllm:latest
+```
+
+访问 http://localhost:3000
+
 ### 环境变量配置
 
 可通过环境变量配置服务端口：
