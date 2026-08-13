@@ -128,7 +128,7 @@ const validateDocument = document => {
   if (document.format !== 'playllm-canvas') {
     throw new Error('Document format must be playllm-canvas')
   }
-  if (document.version !== 1) {
+  if (document.version !== 1 && document.version !== 2) {
     throw new Error('Unsupported document version')
   }
 }
@@ -193,13 +193,15 @@ const updateGraphRecord = async (userId, graphId, name, document) => {
     throw new Error('Graph name is required')
   }
 
-  validateDocument(document)
-
   const filePath = graphFilePath(normalizedUserId, normalizedGraphId)
   const existing = await loadJsonIfExists(filePath)
   if (!existing) {
     throw new Error('Graph record not found')
   }
+
+  // Rename-only flow: when no document is provided, keep the existing content.
+  const effectiveDocument = document === undefined ? existing.document : document
+  validateDocument(effectiveDocument)
 
   await saveUserProfile(normalizedUserId)
 
@@ -209,7 +211,7 @@ const updateGraphRecord = async (userId, graphId, name, document) => {
     name: normalizedName,
     userId: normalizedUserId,
     updatedAt: new Date().toISOString(),
-    document
+    document: effectiveDocument
   }
 
   await writeFile(filePath, JSON.stringify(record, null, 2), 'utf8')
