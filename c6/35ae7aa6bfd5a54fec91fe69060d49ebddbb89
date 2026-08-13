@@ -1,0 +1,16 @@
+README.md
+  h_9f58e71e47ba00 85-96
+Dockerfile
+  h_9f58e71e47ba00 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "c635ae7aa6bfd5a54fec91fe69060d49ebddbb89",
+  "prompts": {},
+  "humans": {
+    "h_9f58e71e47ba00": {
+      "author": "voidvelocity <1225714785@qq.com>"
+    }
+  }
+}
