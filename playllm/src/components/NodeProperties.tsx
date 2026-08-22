@@ -67,6 +67,7 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
   const nodeStyle = selectedNode?.data.style || {}
   const nodeType = selectedNode?.data.nodeType
   const color = nodeColorMap[nodeType || ''] || '#6b7280'
+  const isDataNode = ['Scalar', 'Vector', 'Matrix', 'Tensor'].includes(nodeType || '')
 
   return (
     <div className="relative w-full border-l border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 h-full overflow-y-auto shadow-sm">
@@ -98,6 +99,19 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
             <div className="text-xs font-medium text-gray-700 mb-1">Type</div>
             <div className="text-xs text-gray-900 font-mono">{nodeType}</div>
           </div>
+
+          {isDataNode && selectedNode.data.outputs.length > 0 && (
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Shape</label>
+              <input
+                type="text"
+                value={selectedNode.data.outputs[0].tensor ? formatShape(selectedNode.data.outputs[0].tensor.shape) : ''}
+                onChange={e => handleShapeChange('outputs', selectedNode.data.outputs[0].id, e.target.value)}
+                className="w-full px-2 py-0.5 text-xs border border-gray-300 rounded font-mono"
+                placeholder="B, N, H"
+              />
+            </div>
+          )}
 
           <div className="mb-3 p-2 bg-white rounded border border-gray-200">
             <div className="text-xs font-medium text-gray-700 mb-1.5">Appearance</div>
@@ -259,13 +273,13 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
               <div className="text-xs font-medium text-gray-700 mb-1.5">Text</div>
               <div className="mb-1.5">
                 <label className="block text-[9px] text-gray-500 mb-0.5">Content</label>
-                <input
-                  type="text"
+                <textarea
                   value={selectedNode.data.label}
                   onChange={e => handleLabelChange(e.target.value)}
-                  className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded"
+                  rows={3}
+                  className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded resize-y"
                 />
-                <p className="text-[9px] text-gray-400 mt-0.5">Use $...$ for LaTeX</p>
+                <p className="text-[9px] text-gray-400 mt-0.5">Use $...$ for LaTeX. Multi-line is supported.</p>
               </div>
               <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                 <div>
@@ -336,7 +350,7 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
             </div>
           )}
 
-          {selectedNode.data.inputs.length > 0 && (
+          {selectedNode.data.inputs.length > 0 && !isDataNode && (
             <div className="mb-3">
               <div className="text-xs font-medium text-gray-700 mb-1.5">Inputs</div>
               {selectedNode.data.inputs.map((input) => (
@@ -365,7 +379,7 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
             </div>
           )}
 
-          {selectedNode.data.outputs.length > 0 && (
+          {selectedNode.data.outputs.length > 0 && !isDataNode && (
             <div className="mb-3">
               <div className="text-xs font-medium text-gray-700 mb-1.5">Outputs</div>
               {selectedNode.data.outputs.map((output) => (

@@ -309,6 +309,10 @@ const GraphEditor = () => {
               nodes: [...cleared, ...withSel],
               edges: [...state.graph.edges, ...newEdges]
             })
+            if (newNodes.length > 0) {
+              state.selectNode(newNodes[0].id)
+              state.selectEdge(null)
+            }
             setTimeout(() => useGraphStore.getState().runShapeInference(), 0)
           } catch {
             /* not our clipboard format */

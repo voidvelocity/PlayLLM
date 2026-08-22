@@ -1,38 +1,18 @@
 import { Shape, ValidationError } from '../types'
 
-const evaluateArithmetic = (expr: string): number | string => {
-  const trimmed = expr.trim()
-
-  if (/^[\d\s+\-*/()]+$/.test(trimmed)) {
-    try {
-      const safeExpr = trimmed.replace(/\b0+(\d)/g, '$1')
-      const result = new Function(`return (${safeExpr})`)()
-      if (typeof result === 'number' && Number.isFinite(result) && Number.isInteger(result) && result >= 0) {
-        return result
-      }
-    } catch { /* fall through */ }
-  }
-
-  return trimmed
-}
-
 export function parseShape(shapeStr: string): Shape {
   const cleaned = shapeStr.replace(/[()]/g, '').trim()
   if (!cleaned) return []
 
-  return cleaned.split(',').map(part => {
-    const trimmed = part.trim()
-    if (!trimmed) return '?'
-
-    const num = parseInt(trimmed, 10)
-    if (!isNaN(num) && String(num) === trimmed) return num
-
-    if (/[+\-*/]/.test(trimmed)) {
-      return evaluateArithmetic(trimmed)
-    }
-
-    return trimmed
-  })
+  return cleaned
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part !== '')
+    .map(part => {
+      const num = parseInt(part, 10)
+      if (!isNaN(num) && String(num) === part) return num
+      return part
+    })
 }
 
 export function formatShape(shape: Shape): string {

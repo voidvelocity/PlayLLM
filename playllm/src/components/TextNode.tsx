@@ -110,9 +110,9 @@ const TextNode = ({ id, data, selected }: TextNodeProps) => {
           fontFamily,
           fontWeight,
           textAlign,
-          whiteSpace: 'nowrap',
+          whiteSpace: 'pre-wrap',
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
+          wordBreak: 'break-word',
           width: '100%',
           lineHeight: 1.2
         }}
