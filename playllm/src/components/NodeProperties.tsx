@@ -1,7 +1,39 @@
+import { useState, useEffect } from 'react'
 import { useGraphStore } from '../store/graphStore'
 import { useUIStore } from '../store/uiStore'
-import { formatShape } from '../utils/shape'
+import { Shape } from '../types'
 import { nodeColorMap } from '../nodes'
+
+const shapeToRaw = (shape?: Shape): string => {
+  if (!shape) return ''
+  return shape.map(s => String(s)).join(', ')
+}
+
+const ShapeInput = ({ shape, onChange, placeholder }: { shape?: Shape, onChange: (value: string) => void, placeholder?: string }) => {
+  const [raw, setRaw] = useState(shapeToRaw(shape))
+  const [isFocused, setIsFocused] = useState(false)
+
+  useEffect(() => {
+    if (!isFocused) {
+      setRaw(shapeToRaw(shape))
+    }
+  }, [shape, isFocused])
+
+  return (
+    <input
+      type="text"
+      value={raw}
+      placeholder={placeholder}
+      onChange={e => setRaw(e.target.value)}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => {
+        setIsFocused(false)
+        onChange(raw)
+      }}
+      className="flex-1 px-1 py-0 text-[10px] border border-gray-200 rounded font-mono"
+    />
+  )
+}
 
 const fontFamilyOptions = [
   { value: 'sans-serif', label: 'Sans Serif' },
@@ -103,11 +135,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
           {isDataNode && selectedNode.data.outputs.length > 0 && (
             <div className="mb-3">
               <label className="block text-xs font-medium text-gray-700 mb-1">Shape</label>
-              <input
-                type="text"
-                value={selectedNode.data.outputs[0].tensor ? formatShape(selectedNode.data.outputs[0].tensor.shape) : ''}
-                onChange={e => handleShapeChange('outputs', selectedNode.data.outputs[0].id, e.target.value)}
-                className="w-full px-2 py-0.5 text-xs border border-gray-300 rounded font-mono"
+              <ShapeInput
+                shape={selectedNode.data.outputs[0].tensor?.shape}
+                onChange={value => handleShapeChange('outputs', selectedNode.data.outputs[0].id, value)}
                 placeholder="B, N, H"
               />
             </div>
@@ -366,11 +396,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
                   </div>
                   <div className="flex items-center gap-1">
                     <label className="text-[9px] text-gray-500 w-8 shrink-0">Shape</label>
-                    <input
-                      type="text"
-                      value={input.tensor ? formatShape(input.tensor.shape) : ''}
-                      onChange={e => handleShapeChange('inputs', input.id, e.target.value)}
-                      className="flex-1 px-1 py-0 text-[10px] border border-gray-200 rounded font-mono"
+                    <ShapeInput
+                      shape={input.tensor?.shape}
+                      onChange={value => handleShapeChange('inputs', input.id, value)}
                       placeholder="B, N, H"
                     />
                   </div>
@@ -395,11 +423,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
                   </div>
                   <div className="flex items-center gap-1">
                     <label className="text-[9px] text-gray-500 w-8 shrink-0">Shape</label>
-                    <input
-                      type="text"
-                      value={output.tensor ? formatShape(output.tensor.shape) : ''}
-                      onChange={e => handleShapeChange('outputs', output.id, e.target.value)}
-                      className="flex-1 px-1 py-0 text-[10px] border border-gray-200 rounded font-mono"
+                    <ShapeInput
+                      shape={output.tensor?.shape}
+                      onChange={value => handleShapeChange('outputs', output.id, value)}
                       placeholder="B, N, H"
                     />
                   </div>

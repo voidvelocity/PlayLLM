@@ -13,7 +13,6 @@ interface NodeProps {
   selected: boolean
 }
 
-const GRID = 8
 
 const patternDefs: Record<FillPattern, (id: string, color: string) => string> = {
   none: () => '',
@@ -86,32 +85,47 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
   const headerColor = nodeStyle.headerColor || color
   const dataFillColor = isData ? (nodeStyle.fillColor || color) : fillColor
 
+  // Layout rules:
+  //  - Node height is always even (= 2 * UNIT).
+  //  - Every connection point sits on an integer pixel coordinate.
+  //  - For multi-port blocks: the first port is placed at the rounded center
+  //    of the first slot, and subsequent ports are exactly PORT_STEP px below
+  //    the previous one. PORT_STEP itself is an integer, so the whole stack
+  //    stays on integer coordinates regardless of node height.
+  const UNIT = 2
+  const PORT_STEP = 18
+
   const headerH = 28
-  const portRowH = 11
-  const sepH = 4
   const errorH = nodeErrors.length > 0 ? 14 : 0
   const padY = 4
 
-  const inputBlockH = inputCount * portRowH
-  const outputBlockH = outputCount * portRowH
-  const sepBlockH = (inputCount > 0 && outputCount > 0) ? sepH : 0
+  const inputBlockH = inputCount * PORT_STEP
+  const outputBlockH = outputCount * PORT_STEP
+  const sepBlockH = (inputCount > 0 && outputCount > 0) ? 4 : 0
 
   const autoH = padY + headerH + inputBlockH + sepBlockH + outputBlockH + errorH + padY
-  const nodeH = nodeStyle.height || (isData ? 34 : Math.ceil(autoH / GRID) * GRID)
+  const rawNodeH = nodeStyle.height || (isData ? 48 : autoH)
+  // Force height to be an even integer.
+  const nodeH = Math.round(rawNodeH / UNIT) * UNIT
   const nodeW = nodeStyle.width || (isData ? 112 : 120)
 
   const contentTop = padY
   const inputBlockTop = contentTop + headerH
   const outputBlockTop = inputBlockTop + inputBlockH + sepBlockH
 
+  // First input port: rounded center of the input block (integer).
+  // Subsequent ports: previous + PORT_STEP (still integer).
   const getHandlePx = (i: number, count: number) => {
-    if (count === 1) return nodeH / 2
-    return inputBlockTop + (i + 0.5) * (inputBlockH / count)
+    if (count === 1) return Math.round(nodeH / 2)
+    const first = Math.round(inputBlockTop + (inputBlockH / count) / 2)
+    return first + i * PORT_STEP
   }
 
+  // Output ports: same scheme, centered relative to the output block.
   const getOutputHandlePx = (i: number, count: number) => {
-    if (count === 1) return nodeH / 2
-    return outputBlockTop + (i + 0.5) * (outputBlockH / count)
+    if (count === 1) return Math.round(nodeH / 2)
+    const first = Math.round(outputBlockTop + (outputBlockH / count) / 2)
+    return first + i * PORT_STEP
   }
 
   const patternId = `p-${id}-${fillPattern}`
@@ -283,21 +297,21 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
 
           <div style={{ position: 'absolute', top: inputBlockTop, left: 6, right: 6 }}>
             {data.inputs.map((input) => (
-              <div key={input.id} style={{ height: portRowH }} className="flex items-center">
+              <div key={input.id} style={{ height: PORT_STEP }} className="flex items-center">
                 {renderPortLabel(input.name, input.tensor ? formatShape(input.tensor.shape) : undefined)}
               </div>
             ))}
           </div>
 
           {sepBlockH > 0 && (
-            <div style={{ position: 'absolute', top: inputBlockTop + inputBlockH, left: 6, right: 6, height: sepH }}>
-              <div style={{ marginTop: sepH / 2, borderColor: fontColor, opacity: 0.1 }} className="border-t" />
+            <div style={{ position: 'absolute', top: inputBlockTop + inputBlockH, left: 6, right: 6, height: sepBlockH }}>
+              <div style={{ marginTop: sepBlockH / 2, borderColor: fontColor, opacity: 0.1 }} className="border-t" />
             </div>
           )}
 
           <div style={{ position: 'absolute', top: outputBlockTop, left: 6, right: 6 }}>
             {data.outputs.map((output) => (
-              <div key={output.id} style={{ height: portRowH }} className="flex items-center justify-end">
+              <div key={output.id} style={{ height: PORT_STEP }} className="flex items-center justify-end">
                 {renderPortLabel(output.name, output.tensor ? formatShape(output.tensor.shape) : undefined)}
               </div>
             ))}

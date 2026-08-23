@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import ReactFlow, {
   Controls,
+  ControlButton,
   Background,
   MiniMap,
   Connection,
@@ -13,9 +14,11 @@ import ReactFlow, {
   MarkerType
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { toSvg } from 'html-to-image'
 import type { Node as GraphNode } from '../types'
 import { useGraphStore } from '../store/graphStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useUIStore } from '../store/uiStore'
 import { createNodeFromType, createCustomNode, createNodeFromSnapshot } from '../nodes'
 import {
   buildClipboardPayload,
@@ -31,10 +34,32 @@ import TextNode from './TextNode'
 
 const nodeTypes = { custom: NodeComponent, rect: RectNode, text: TextNode }
 
+// html-to-image's toSvg() returns a `data:image/svg+xml;charset=utf-8,...` URI.
+// Browsers can't open that file directly, so decode it back to a raw SVG string.
+const decodeSvgDataUri = (dataUri: string): string => {
+  const prefix = 'data:image/svg+xml'
+  if (!dataUri.startsWith(prefix)) return dataUri
+  const commaIdx = dataUri.indexOf(',')
+  if (commaIdx < 0) return dataUri
+  const header = dataUri.slice(5, commaIdx)
+  const payload = dataUri.slice(commaIdx + 1)
+  if (header.includes(';base64')) {
+    try {
+      return atob(payload)
+    } catch {
+      return dataUri
+    }
+  }
+  try {
+    return decodeURIComponent(payload)
+  } catch {
+    return payload
+  }
+}
+
 const defaultEdgeOptions = {
   type: 'smoothstep',
   animated: false,
-  pathOptions: { offset: 15 },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 14,
@@ -58,6 +83,8 @@ const GraphEditor = () => {
   const createNewGraph = useWorkspaceStore(state => state.createNewGraph)
   const saveCurrentGraph = useWorkspaceStore(state => state.saveCurrentGraph)
   const syncCurrentCanvas = useWorkspaceStore(state => state.syncCurrentCanvas)
+  const showGrid = useUIStore(state => state.showGrid)
+  const toggleGrid = useUIStore(state => state.toggleGrid)
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -107,7 +134,6 @@ const GraphEditor = () => {
       targetHandle: connection.targetHandle!,
       type: 'smoothstep',
       animated: false,
-      pathOptions: { offset: 15 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 14,
@@ -183,6 +209,54 @@ const GraphEditor = () => {
 
     URL.revokeObjectURL(url)
   }, [customOperators, graph, initialShape])
+
+  const handleExportSVG = useCallback(async () => {
+    const instance = reactFlowInstance.current
+    if (!instance) return
+
+    instance.fitView({ padding: 0.05, minZoom: 0.1, maxZoom: 4 })
+    await new Promise(resolve => setTimeout(resolve, 200))
+
+    // Export the ReactFlow root element. html-to-image returns a
+    // data:image/svg+xml URI; we decode it back to a real SVG string so the
+    // browser can open the file directly.
+    const flow = document.querySelector('.react-flow') as HTMLElement | null
+    if (!flow) return
+
+    // Hide the controls panel, minimap, and grid background during capture so
+    // they don't appear in the exported SVG.
+    const hidden: HTMLElement[] = []
+    const selectors = ['.react-flow__controls', '.react-flow__minimap', '.react-flow__background', '.react-flow__attribution']
+    for (const sel of selectors) {
+      const el = flow.querySelector(sel) as HTMLElement | null
+      if (el) {
+        hidden.push(el)
+        el.style.visibility = 'hidden'
+      }
+    }
+
+    try {
+      const dataUri = await toSvg(flow, { backgroundColor: '#ffffff', pixelRatio: 2, cacheBust: true })
+      const svgString = decodeSvgDataUri(dataUri)
+      if (!svgString.startsWith('<svg') && !svgString.startsWith('<?xml')) {
+        throw new Error('Generated content is not a valid SVG document')
+      }
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      anchor.href = url
+      anchor.download = `playllm-${timestamp}.svg`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      window.alert(`Export to SVG failed: ${(error as Error).message}`)
+    } finally {
+      for (const el of hidden) {
+        el.style.visibility = ''
+      }
+    }
+  }, [])
 
   const handleOpenCanvasFile = useCallback(() => {
     fileInputRef.current?.click()
@@ -424,15 +498,23 @@ const GraphEditor = () => {
         deleteKeyCode={['Backspace', 'Delete']}
         panOnDrag
         multiSelectionKeyCode="Shift"
-        snapToGrid
-        snapGrid={[8, 8]}
         minZoom={0.1}
         maxZoom={4}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         elevateNodesOnSelect={false}
       >
-        <Background color="#e5e7eb" gap={15} />
-        <Controls />
+        {showGrid && <Background color="#cbd5e1" gap={8} size={1} />}
+        <Controls>
+          <ControlButton
+            onClick={toggleGrid}
+            title={showGrid ? 'Hide grid' : 'Show grid'}
+            aria-label="Toggle grid"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 5A.75.75 0 012.75 9h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 9.75zm0 5A.75.75 0 012.75 14h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 14.75z" clipRule="evenodd" />
+            </svg>
+          </ControlButton>
+        </Controls>
         <MiniMap
           nodeStrokeWidth={3}
           zoomable
@@ -487,6 +569,12 @@ const GraphEditor = () => {
           className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-white rounded-xl shadow-sm hover:shadow-md hover:from-amber-500 hover:to-amber-600 transition-all duration-200 text-xs font-semibold"
         >
           Download
+        </button>
+        <button
+          onClick={() => void handleExportSVG()}
+          className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 text-white rounded-xl shadow-sm hover:shadow-md hover:from-cyan-600 hover:to-cyan-700 transition-all duration-200 text-xs font-semibold"
+        >
+          ToSVG
         </button>
       </div>
     </div>
