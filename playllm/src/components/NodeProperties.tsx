@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useGraphStore } from '../store/graphStore'
-import { useUIStore } from '../store/uiStore'
 import { Shape } from '../types'
 import { nodeColorMap } from '../nodes'
+import { getNodeHeight } from '../utils/nodeGeometry'
 
 const shapeToRaw = (shape?: Shape): string => {
   if (!shape) return ''
   return shape.map(s => String(s)).join(', ')
 }
 
-const ShapeInput = ({ shape, onChange, placeholder }: { shape?: Shape, onChange: (value: string) => void, placeholder?: string }) => {
+const ShapeInput = ({ shape, onChange, onEditStart, placeholder, invalid = false }: { shape?: Shape, onChange: (value: string) => void, onEditStart: () => void, placeholder?: string, invalid?: boolean }) => {
   const [raw, setRaw] = useState(shapeToRaw(shape))
   const [isFocused, setIsFocused] = useState(false)
 
@@ -24,13 +24,19 @@ const ShapeInput = ({ shape, onChange, placeholder }: { shape?: Shape, onChange:
       type="text"
       value={raw}
       placeholder={placeholder}
-      onChange={e => setRaw(e.target.value)}
-      onFocus={() => setIsFocused(true)}
+      onChange={e => {
+        const next = e.target.value
+        setRaw(next)
+        onChange(next)
+      }}
+      onFocus={() => {
+        setIsFocused(true)
+        onEditStart()
+      }}
       onBlur={() => {
         setIsFocused(false)
-        onChange(raw)
       }}
-      className="flex-1 px-1 py-0 text-[10px] border border-gray-200 rounded font-mono"
+      className={`flex-1 px-1 py-0 text-[10px] rounded font-mono transition-colors ${invalid ? 'border border-red-300 bg-red-50 text-red-800 focus:border-red-500 focus:ring-red-100' : 'border border-gray-200 bg-white'}`}
     />
   )
 }
@@ -42,9 +48,10 @@ const fontFamilyOptions = [
   { value: "'Courier New', monospace", label: 'Courier' }
 ]
 
-const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
+const NodeProperties = () => {
   const selectedNodeId = useGraphStore(state => state.selectedNodeId)
   const graph = useGraphStore(state => state.graph)
+  const errors = useGraphStore(state => state.errors)
   const updateNodeParams = useGraphStore(state => state.updateNodeParams)
   const updateNodeLabel = useGraphStore(state => state.updateNodeLabel)
   const updateNodeStyle = useGraphStore(state => state.updateNodeStyle)
@@ -52,23 +59,7 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
   const updatePortName = useGraphStore(state => state.updatePortName)
   const moveNodeToBack = useGraphStore(state => state.moveNodeToBack)
   const moveNodeToFront = useGraphStore(state => state.moveNodeToFront)
-  const toggleRightSidebar = useUIStore(state => state.toggleRightSidebar)
-
   const selectedNode = graph.nodes.find(n => n.id === selectedNodeId)
-
-  if (collapsed) {
-    return (
-      <div className="relative flex h-full flex-col items-center justify-center border-l border-slate-200 bg-gradient-to-b from-slate-50 to-white" style={{ width: '28px' }}>
-        <button
-          onClick={toggleRightSidebar}
-          className="flex h-20 w-6 items-center justify-center rounded-lg bg-white shadow-sm border border-slate-200 text-slate-400 hover:text-indigo-500 hover:border-indigo-200 hover:shadow-md transition-all duration-200"
-          title="Open Properties"
-        >
-          ◂
-        </button>
-      </div>
-    )
-  }
 
   const handleParamChange = (param: string, value: any) => {
     if (!selectedNodeId) return
@@ -88,8 +79,10 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
 
   const handleShapeChange = (portType: 'inputs' | 'outputs', portId: string, value: string) => {
     if (!selectedNodeId) return
-    updatePortShape(selectedNodeId, portType, portId, value)
+    updatePortShape(selectedNodeId, portType, portId, value, false)
   }
+
+  const beginShapeEdit = () => useGraphStore.getState().pushSnapshot()
 
   const handlePortNameChange = (portType: 'inputs' | 'outputs', portId: string, name: string) => {
     if (!selectedNodeId) return
@@ -100,20 +93,31 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
   const nodeType = selectedNode?.data.nodeType
   const color = nodeColorMap[nodeType || ''] || '#6b7280'
   const isDataNode = ['Scalar', 'Vector', 'Matrix', 'Tensor'].includes(nodeType || '')
+  const hasShapeError = selectedNode
+    ? (errors[selectedNode.id] || []).some(error => error.level === 'error')
+    : false
+  const actualNodeHeight = selectedNode
+    ? getNodeHeight(selectedNode.data)
+    : 0
 
   return (
-    <div className="relative w-full border-l border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 h-full overflow-y-auto shadow-sm">
-      <button
-        onClick={toggleRightSidebar}
-        className="absolute top-1/2 left-0 z-10 flex h-20 w-6 -translate-y-1/2 -translate-x-1/2 items-center justify-center rounded-lg bg-white shadow-sm border border-slate-200 text-slate-400 hover:text-indigo-500 hover:border-indigo-200 hover:shadow-md transition-all duration-200"
-        title="Collapse Properties"
-      >
-        ▸
-      </button>
-      <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 mb-4">Properties</h2>
+    <div className="property-form relative h-full w-full overflow-y-auto bg-slate-50/70 p-4 pt-0">
+      <div className="sticky top-0 z-[5] -mx-4 mb-4 flex h-[72px] items-center justify-between border-b border-slate-200/80 bg-white px-4">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Inspector</h2>
+          <p className="mt-0.5 text-[10px] text-slate-400">Fine-tune the selected element</p>
+        </div>
+        <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[9px] uppercase text-slate-500">{selectedNode ? selectedNode.data.nodeType : 'None'}</span>
+      </div>
 
       {!selectedNode ? (
-        <p className="text-slate-400 text-xs">Select a node to view and edit its properties</p>
+        <div className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center">
+          <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m5 3 14 9-6 2-2 6L5 3Z" /></svg>
+          </div>
+          <p className="text-xs font-medium text-slate-600">Nothing selected</p>
+          <p className="mt-1 text-[10px] leading-4 text-slate-400">Select a node or connection on the canvas to edit its properties.</p>
+        </div>
       ) : (
         <>
           <div className="mb-3">
@@ -124,7 +128,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
               onChange={e => handleLabelChange(e.target.value)}
               className="w-full px-2 py-0.5 text-xs border border-gray-300 rounded"
             />
-            <p className="text-[9px] text-gray-400 mt-0.5">Use $...$ for LaTeX, e.g. $x$, $W_i$</p>
+            <p className="text-[9px] text-gray-400 mt-0.5">
+              {nodeType === 'Text' ? 'Internal element name; edit the visible content below or directly on canvas.' : 'Use $...$ for LaTeX, e.g. $x$, $W_i$'}
+            </p>
           </div>
 
           <div className="mb-3">
@@ -138,7 +144,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
               <ShapeInput
                 shape={selectedNode.data.outputs[0].tensor?.shape}
                 onChange={value => handleShapeChange('outputs', selectedNode.data.outputs[0].id, value)}
+                onEditStart={beginShapeEdit}
                 placeholder="B, N, H"
+                invalid={hasShapeError}
               />
             </div>
           )}
@@ -162,10 +170,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
                 <label className="block text-[9px] text-gray-500 mb-0.5">Height</label>
                 <input
                   type="number"
-                  value={nodeStyle.height || ''}
+                  value={actualNodeHeight}
                   onChange={e => handleStyleChange('height', e.target.value ? parseInt(e.target.value) : undefined)}
                   className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded font-mono"
-                  placeholder="auto"
                   min={24}
                   step={8}
                 />
@@ -304,8 +311,8 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
               <div className="mb-1.5">
                 <label className="block text-[9px] text-gray-500 mb-0.5">Content</label>
                 <textarea
-                  value={selectedNode.data.label}
-                  onChange={e => handleLabelChange(e.target.value)}
+                  value={String(selectedNode.data.params.content ?? selectedNode.data.label)}
+                  onChange={e => handleParamChange('content', e.target.value)}
                   rows={3}
                   className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded resize-y"
                 />
@@ -399,7 +406,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
                     <ShapeInput
                       shape={input.tensor?.shape}
                       onChange={value => handleShapeChange('inputs', input.id, value)}
+                      onEditStart={beginShapeEdit}
                       placeholder="B, N, H"
+                      invalid={hasShapeError}
                     />
                   </div>
                 </div>
@@ -426,7 +435,9 @@ const NodeProperties = ({ collapsed = false }: { collapsed?: boolean }) => {
                     <ShapeInput
                       shape={output.tensor?.shape}
                       onChange={value => handleShapeChange('outputs', output.id, value)}
+                      onEditStart={beginShapeEdit}
                       placeholder="B, N, H"
+                      invalid={hasShapeError}
                     />
                   </div>
                 </div>

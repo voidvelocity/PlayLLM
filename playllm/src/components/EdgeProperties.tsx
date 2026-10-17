@@ -113,8 +113,11 @@ const EdgeProperties = () => {
   }
 
   return (
-    <div className="p-3 space-y-3">
-      <div className="text-xs font-semibold text-gray-700 border-b pb-1.5">Edge Properties</div>
+    <div className="property-form min-h-full space-y-3 bg-slate-50/70 p-4">
+      <div className="-mx-4 -mt-4 mb-4 flex h-[72px] items-center justify-between border-b border-slate-200/80 bg-white px-4">
+        <div><div className="text-sm font-semibold text-slate-900">Connection</div><div className="mt-0.5 text-[10px] text-slate-400">Style the selected data flow</div></div>
+        <span className="rounded-md bg-indigo-50 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-indigo-600">Edge</span>
+      </div>
 
       <div className="mb-3 p-2 bg-white rounded border border-gray-200">
         <div className="text-xs font-medium text-gray-700 mb-1.5">Line Style</div>

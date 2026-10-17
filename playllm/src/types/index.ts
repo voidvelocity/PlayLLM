@@ -50,6 +50,9 @@ export type CustomOperatorDef = {
   label: string
   inputCount: number
   outputCount: number
+  inputNames?: string[]
+  outputNames?: string[]
+  color?: string
 }
 
 export type CustomNodeData = {
@@ -131,4 +134,6 @@ export type UserSummary = {
   displayName: string
   graphCount: number
   updatedAt: string
+  isPublic: boolean
+  passwordConfigured: boolean
 }

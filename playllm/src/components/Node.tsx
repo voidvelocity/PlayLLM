@@ -4,6 +4,14 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { useGraphStore } from '../store/graphStore'
 import { formatShape } from '../utils/shape'
+import {
+  HEADER_HEIGHT,
+  NODE_PADDING_Y,
+  PORT_SEPARATOR_HEIGHT,
+  PORT_STEP,
+  getNodeHeight,
+  getNodePortOffsets
+} from '../utils/nodeGeometry'
 import { nodeColorMap } from '../nodes'
 import type { CustomNodeData, FillPattern } from '../types'
 
@@ -12,6 +20,8 @@ interface NodeProps {
   data: CustomNodeData
   selected: boolean
 }
+
+const DATA_NODE_TYPES = new Set(['Scalar', 'Vector', 'Matrix', 'Tensor'])
 
 
 const patternDefs: Record<FillPattern, (id: string, color: string) => string> = {
@@ -72,7 +82,7 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
   const nodeErrors = errors[id] || []
   const hasError = nodeErrors.some(e => e.level === 'error')
   const color = nodeColorMap[data.nodeType] || '#6b7280'
-  const isData = ['Scalar', 'Vector', 'Matrix', 'Tensor'].includes(data.nodeType)
+  const isData = DATA_NODE_TYPES.has(data.nodeType)
 
   const inputCount = data.inputs.length
   const outputCount = data.outputs.length
@@ -85,48 +95,27 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
   const headerColor = nodeStyle.headerColor || color
   const dataFillColor = isData ? (nodeStyle.fillColor || color) : fillColor
 
-  // Layout rules:
-  //  - Node height is always even (= 2 * UNIT).
-  //  - Every connection point sits on an integer pixel coordinate.
-  //  - For multi-port blocks: the first port is placed at the rounded center
-  //    of the first slot, and subsequent ports are exactly PORT_STEP px below
-  //    the previous one. PORT_STEP itself is an integer, so the whole stack
-  //    stays on integer coordinates regardless of node height.
-  const UNIT = 2
-  const PORT_STEP = 18
-
-  const headerH = 28
-  const errorH = nodeErrors.length > 0 ? 14 : 0
-  const padY = 4
+  // Node sizes and port offsets share the same 8px geometry grid as dragging.
+  // This makes Data ports exactly alignable with every Operator port.
+  const headerH = HEADER_HEIGHT
+  const padY = NODE_PADDING_Y
 
   const inputBlockH = inputCount * PORT_STEP
-  const outputBlockH = outputCount * PORT_STEP
-  const sepBlockH = (inputCount > 0 && outputCount > 0) ? 4 : 0
+  const sepBlockH = (inputCount > 0 && outputCount > 0) ? PORT_SEPARATOR_HEIGHT : 0
 
-  const autoH = padY + headerH + inputBlockH + sepBlockH + outputBlockH + errorH + padY
-  const rawNodeH = nodeStyle.height || (isData ? 48 : autoH)
-  // Force height to be an even integer.
-  const nodeH = Math.round(rawNodeH / UNIT) * UNIT
+  const nodeH = getNodeHeight(data)
   const nodeW = nodeStyle.width || (isData ? 112 : 120)
 
   const contentTop = padY
   const inputBlockTop = contentTop + headerH
   const outputBlockTop = inputBlockTop + inputBlockH + sepBlockH
 
-  // First input port: rounded center of the input block (integer).
-  // Subsequent ports: previous + PORT_STEP (still integer).
-  const getHandlePx = (i: number, count: number) => {
-    if (count === 1) return Math.round(nodeH / 2)
-    const first = Math.round(inputBlockTop + (inputBlockH / count) / 2)
-    return first + i * PORT_STEP
-  }
-
-  // Output ports: same scheme, centered relative to the output block.
-  const getOutputHandlePx = (i: number, count: number) => {
-    if (count === 1) return Math.round(nodeH / 2)
-    const first = Math.round(outputBlockTop + (outputBlockH / count) / 2)
-    return first + i * PORT_STEP
-  }
+  const inputHandleOffsets = getNodePortOffsets(data, nodeH, 'inputs')
+  const outputHandleOffsets = getNodePortOffsets(data, nodeH, 'outputs')
+  // Absolutely positioned children use the operator's inner border edge as
+  // their origin. Compensate that real border so the measured handle centre
+  // stays on the same 4px canvas track as borderless Data nodes.
+  const handleBorderCompensation = isData ? 0 : selected ? 2 : 1
 
   const patternId = `p-${id}-${fillPattern}`
   const patternSvg = fillPattern !== 'none' ? patternDefs[fillPattern](patternId, patternColor) : ''
@@ -138,21 +127,24 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
   const renderPortLabel = useCallback((name: string, shapeStr?: string) => {
     const isLat = isLatex(name)
     const nameHtml = isLat ? renderLatex(stripLatex(name)) : escapeHtml(name)
-    const shapeHtml = shapeStr ? `<span style="margin-left:1px;font-size:6px;color:#000">${escapeHtml(shapeStr)}</span>` : ''
+    const shapeStyle = hasError
+      ? 'margin-left:2px;padding:1px 3px;border-radius:3px;font-size:7px;color:#b91c1c;background:#fee2e2;font-weight:600'
+      : 'margin-left:1px;font-size:7px;color:#000'
+    const shapeHtml = shapeStr ? `<span style="${shapeStyle}">${escapeHtml(shapeStr)}</span>` : ''
     return (
       <span
         className="leading-none truncate"
-        style={{ color: fontColor, fontSize: 7, fontFamily: "'Menlo', 'Consolas', monospace", fontWeight: 300 }}
+        style={{ color: fontColor, fontSize: 8, fontFamily: "'Menlo', 'Consolas', monospace", fontWeight: 300 }}
         dangerouslySetInnerHTML={{ __html: nameHtml + shapeHtml }}
       />
     )
-  }, [fontColor])
+  }, [fontColor, hasError])
 
   return (
     <div
       onClick={() => selectNode(id)}
       style={{
-        borderColor: isData ? 'transparent' : hasError ? '#ef4444' : selected ? headerColor : '#e2e8f0',
+        borderColor: isData ? 'transparent' : selected ? headerColor : '#e2e8f0',
         position: 'relative',
         width: nodeW,
         height: nodeH,
@@ -161,7 +153,7 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
         boxShadow: isData ? 'none' : selected ? '0 4px 12px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.1)' : '0 1px 3px rgba(0, 0, 0, 0.08)'
       }}
       className={`${isData ? '' : 'rounded-xl'} ${
-        isData ? '' : hasError ? 'border-2' : selected ? 'border-2' : 'border'
+        isData ? '' : selected ? 'border-2' : 'border'
       } transition-all duration-200`}
     >
       {patternSvg && (
@@ -190,10 +182,10 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
           style={{
             zIndex: 10,
             background: `linear-gradient(135deg, ${headerColor} 0%, color-mix(in srgb, ${headerColor} 80%, white) 100%)`,
-            width: isData ? 18 : 12,
-            height: isData ? 18 : 12,
-            top: getHandlePx(i, inputCount),
-            left: isData ? -9 : -6,
+            width: 12,
+            height: 12,
+            top: inputHandleOffsets[i] - handleBorderCompensation,
+            left: -6,
             border: '2px solid rgba(255,255,255,0.95)',
             boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
             cursor: 'crosshair'
@@ -211,10 +203,10 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
           style={{
             zIndex: 10,
             background: `linear-gradient(135deg, ${headerColor} 0%, color-mix(in srgb, ${headerColor} 80%, white) 100%)`,
-            width: isData ? 18 : 12,
-            height: isData ? 18 : 12,
-            top: getOutputHandlePx(i, outputCount),
-            right: isData ? -9 : -6,
+            width: 12,
+            height: 12,
+            top: outputHandleOffsets[i] - handleBorderCompensation,
+            right: -6,
             border: '2px solid rgba(255,255,255,0.95)',
             boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
             cursor: 'crosshair'
@@ -275,7 +267,19 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
                 textShadow: '0 1px 2px rgba(0,0,0,0.2)'
               }}
             >
-              {tensorShape}
+              <span
+                style={hasError ? {
+                  display: 'inline-block',
+                  padding: '1px 4px',
+                  borderRadius: 4,
+                  color: '#991b1b',
+                  background: '#fee2e2',
+                  textShadow: 'none',
+                  fontWeight: 700
+                } : undefined}
+              >
+                {tensorShape}
+              </span>
             </div>
           </div>
         </div>
@@ -319,16 +323,6 @@ const NodeComponent = ({ id, data, selected }: NodeProps) => {
         </>
       )}
 
-      {nodeErrors.length > 0 && (
-        <div
-          className="text-red-600 border-t border-red-100"
-          style={{ position: 'absolute', bottom: padY, left: 4, right: 4, fontSize: 7 }}
-        >
-          {nodeErrors.map((err, i) => (
-            <div key={i}>{err.level === 'error' ? '✕' : '⚠'} {err.message}</div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

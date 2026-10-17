@@ -1,12 +1,22 @@
 import { create } from 'zustand'
-import { deleteGraphByUser, getGraphByUser, listGraphsByUser, saveGraphByUser, updateGraphByUser } from '../utils/serverApi'
+import {
+  deleteGraphByUser,
+  getAuthSession,
+  getGraphByUser,
+  listGraphsByUser,
+  loginPublicUser,
+  loginUser,
+  logoutUser,
+  registerUser,
+  saveGraphByUser,
+  updateGraphByUser
+} from '../utils/serverApi'
 import { canvasDocumentsEqual, cloneCanvasDocument, restoreCanvasState, serializeCanvasDocument } from '../utils/persistence'
-import type { CustomOperatorDef, Graph, SavedCanvasDocument, WorkspaceGraphSummary } from '../types'
+import type { CustomOperatorDef, Graph, SavedCanvasDocument, UserSummary, WorkspaceGraphSummary } from '../types'
 import { DEFAULT_INITIAL_SHAPE_STR } from '../utils/shapeSymbols'
 import { useGraphStore } from './graphStore'
 
-const DEFAULT_USER = 'demo'
-const USER_STORAGE_KEY = 'playllm.currentUserId'
+const DEFAULT_USER = 'public'
 const SYNC_DEBOUNCE_MS = 300
 
 let _syncTimer: ReturnType<typeof setTimeout> | null = null
@@ -19,6 +29,9 @@ type SavedNames = Record<string, string>
 
 interface WorkspaceState {
   currentUserId: string
+  currentUserDisplayName: string
+  currentUserIsPublic: boolean
+  authReady: boolean
   graphRecords: WorkspaceGraphSummary[]
   currentGraphId: string | null
   currentGraphName: string
@@ -26,7 +39,10 @@ interface WorkspaceState {
   isBusy: boolean
   workingDocuments: WorkingDocuments
   initializeWorkspace: () => Promise<void>
-  setCurrentUserId: (userId: string) => Promise<void>
+  signIn: (userId: string, password: string) => Promise<void>
+  createAccount: (userId: string, password: string, displayName?: string) => Promise<void>
+  usePublicWorkspace: () => Promise<void>
+  signOut: () => Promise<void>
   refreshWorkspace: () => Promise<void>
   loadGraphIntoCanvas: (graphId: string, loadCanvasState: LoadCanvasState) => Promise<void>
   createNewGraph: (loadCanvasState: LoadCanvasState) => void
@@ -42,17 +58,7 @@ interface WorkspaceState {
   syncCurrentCanvas: () => void
   setCurrentGraphName: (name: string) => void
   /** After Import file: bind canvas to a draft record so Save syncs and the document appears in the list. */
-  attachImportedDocument: (fileName: string) => void
-}
-
-const getStoredUserId = () => {
-  if (typeof window === 'undefined') return DEFAULT_USER
-  return window.localStorage.getItem(USER_STORAGE_KEY) || DEFAULT_USER
-}
-
-const persistUserId = (userId: string) => {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(USER_STORAGE_KEY, userId)
+  attachImportedDocument: (fileName: string, importedName?: string) => void
 }
 
 const isDraftId = (graphId: string | null) => Boolean(graphId && graphId.startsWith('draft:'))
@@ -90,8 +96,48 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     return [next, ...without]
   }
 
+  const activateAuthenticatedUser = async (profile: UserSummary) => {
+    if (_syncTimer) {
+      clearTimeout(_syncTimer)
+      _syncTimer = null
+    }
+    baseDocuments = {}
+    savedNames = {}
+    useGraphStore.getState().loadCanvasState({
+      graph: { nodes: [], edges: [] },
+      initialShape: DEFAULT_INITIAL_SHAPE_STR,
+      customOperators: []
+    })
+    set({
+      currentUserId: profile.id,
+      currentUserDisplayName: profile.displayName,
+      currentUserIsPublic: profile.isPublic,
+      currentGraphId: null,
+      currentGraphName: '',
+      graphRecords: [],
+      workingDocuments: {},
+      isBusy: true
+    })
+
+    const serverGraphs = await listGraphsByUser(profile.id)
+    serverGraphs.forEach(graph => {
+      savedNames[graph.id] = graph.name
+    })
+    set({
+      graphRecords: serverGraphs.map(graph => ({ ...graph, isDirty: false })),
+      status: profile.isPublic
+        ? `Opened public workspace · ${serverGraphs.length} graphs`
+        : `Signed in as ${profile.displayName} · ${serverGraphs.length} graphs`,
+      isBusy: false,
+      authReady: true
+    })
+  }
+
   return {
-    currentUserId: getStoredUserId(),
+    currentUserId: DEFAULT_USER,
+    currentUserDisplayName: 'Public',
+    currentUserIsPublic: true,
+    authReady: false,
     graphRecords: [],
     currentGraphId: null,
     currentGraphName: '',
@@ -100,45 +146,59 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     workingDocuments: {},
 
     initializeWorkspace: async () => {
-      const userId = get().currentUserId.trim() || DEFAULT_USER
       set({ isBusy: true })
 
       try {
-        const serverGraphs = await listGraphsByUser(userId)
-        const draftRecords = get().graphRecords.filter(record => record.isDraft)
-
-        persistUserId(userId)
-        serverGraphs.forEach(graph => {
-          savedNames[graph.id] = graph.name
-        })
-
-        set({
-          currentUserId: userId,
-          graphRecords: [...draftRecords, ...serverGraphs.map(graph => ({ ...graph, isDirty: get().graphRecords.find(r => r.id === graph.id)?.isDirty ?? false }))],
-          status: `Loaded ${serverGraphs.length} graphs for ${userId}`,
-          isBusy: false
-        })
+        let profile: UserSummary
+        try {
+          profile = await getAuthSession()
+        } catch {
+          profile = await loginPublicUser()
+        }
+        await activateAuthenticatedUser(profile)
       } catch (error) {
         set({
           status: `Server unavailable: ${(error as Error).message}`,
-          isBusy: false
+          isBusy: false,
+          authReady: true
         })
       }
     },
 
-    setCurrentUserId: async (userId: string) => {
-      const normalized = userId.trim() || DEFAULT_USER
-      persistUserId(normalized)
-      baseDocuments = {}
-      savedNames = {}
-      set({
-        currentUserId: normalized,
-        currentGraphId: null,
-        currentGraphName: '',
-        graphRecords: [],
-        workingDocuments: {}
-      })
-      await get().initializeWorkspace()
+    signIn: async (userId: string, password: string) => {
+      set({ isBusy: true, status: 'Signing in…' })
+      try {
+        await activateAuthenticatedUser(await loginUser(userId, password))
+      } catch (error) {
+        set({ isBusy: false, status: `Sign in failed: ${(error as Error).message}` })
+        throw error
+      }
+    },
+
+    createAccount: async (userId: string, password: string, displayName?: string) => {
+      set({ isBusy: true, status: 'Creating account…' })
+      try {
+        await activateAuthenticatedUser(await registerUser(userId, password, displayName))
+      } catch (error) {
+        set({ isBusy: false, status: `Account setup failed: ${(error as Error).message}` })
+        throw error
+      }
+    },
+
+    usePublicWorkspace: async () => {
+      set({ isBusy: true, status: 'Opening public workspace…' })
+      try {
+        await activateAuthenticatedUser(await loginPublicUser())
+      } catch (error) {
+        set({ isBusy: false, status: `Public workspace unavailable: ${(error as Error).message}` })
+        throw error
+      }
+    },
+
+    signOut: async () => {
+      set({ isBusy: true, status: 'Signing out…' })
+      await logoutUser()
+      await get().usePublicWorkspace()
     },
 
     refreshWorkspace: async () => {
@@ -515,9 +575,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     setCurrentGraphName: (name: string) => set({ currentGraphName: name }),
 
-    attachImportedDocument: (fileName: string) => {
+    attachImportedDocument: (fileName: string, importedName?: string) => {
       const draftId = `draft:import:${Date.now().toString(36)}`
-      const baseName = fileName.replace(/^.*[/\\]/, '').replace(/\.json$/i, '').trim() || 'Imported'
+      const fileBaseName = fileName.replace(/^.*[/\\]/, '').replace(/\.json$/i, '').trim()
+      const baseName = importedName?.trim() || fileBaseName || 'Imported'
       const { graph, initialShape, customOperators } = useGraphStore.getState()
       const document = serializeCanvasDocument({ graph, initialShape, customOperators })
       baseDocuments[draftId] = cloneCanvasDocument(document)

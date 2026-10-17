@@ -8,6 +8,11 @@ export type GraphClipboardPayload = {
   edges: SavedGraphEdge[]
 }
 
+export type ParsedCanvasImport = {
+  document: SavedCanvasDocument
+  name?: string
+}
+
 type CanvasStateSnapshot = {
   graph: Graph
   initialShape: string
@@ -96,24 +101,34 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export const parseCanvasDocument = (text: string): SavedCanvasDocument => {
+export const parseCanvasImport = (text: string): ParsedCanvasImport => {
   const parsed = JSON.parse(text) as unknown
 
   if (!isPlainObject(parsed)) {
     throw new Error('Invalid canvas file: root must be an object')
   }
-  if (parsed.format !== 'playllm-canvas') {
+
+  // Server-downloaded files wrap the canvas in a graph record's `document` field.
+  // Direct model exports place the same canvas document at the root.
+  const candidate = isPlainObject(parsed.document) ? parsed.document : parsed
+
+  if (candidate.format !== 'playllm-canvas') {
     throw new Error('Invalid canvas file: unsupported format')
   }
-  if (parsed.version !== 1 && parsed.version !== 2) {
-    throw new Error(`Unsupported canvas version: ${String(parsed.version)}`)
+  if (candidate.version !== 1 && candidate.version !== 2) {
+    throw new Error(`Unsupported canvas version: ${String(candidate.version)}`)
   }
-  if (!isPlainObject(parsed.graph) || !Array.isArray(parsed.graph.nodes) || !Array.isArray(parsed.graph.edges)) {
+  if (!isPlainObject(candidate.graph) || !Array.isArray(candidate.graph.nodes) || !Array.isArray(candidate.graph.edges)) {
     throw new Error('Invalid canvas file: graph payload is incomplete')
   }
 
-  return parsed as SavedCanvasDocument
+  return {
+    document: candidate as SavedCanvasDocument,
+    name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : undefined
+  }
 }
+
+export const parseCanvasDocument = (text: string): SavedCanvasDocument => parseCanvasImport(text).document
 
 export const restoreCanvasState = (document: SavedCanvasDocument): CanvasStateSnapshot => {
   const nodes = document.graph.nodes.map(node => {

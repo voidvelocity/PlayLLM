@@ -4,17 +4,29 @@ import react from '@vitejs/plugin-react'
 const frontendPort = parseInt(process.env.PLAYLLM_FRONTEND_PORT || '3000')
 const backendHost = process.env.PLAYLLM_HOST || '127.0.0.1'
 const backendPort = parseInt(process.env.PLAYLLM_PORT || '3001')
+const noCacheHeaders = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0'
+}
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: frontendPort,
     host: true,
+    headers: noCacheHeaders,
+    fs: {
+      deny: ['server-data/**', '**/server-data/**']
+    },
     proxy: {
       '/api': {
         target: `http://${backendHost}:${backendPort}`,
         changeOrigin: true
       }
     }
+  },
+  preview: {
+    headers: noCacheHeaders
   }
 })

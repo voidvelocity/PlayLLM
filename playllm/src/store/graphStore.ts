@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { Edge, Graph, ValidationError, Node, TensorSpec, Port, NodeStyle, CustomOperatorDef } from '../types'
 import { parseShape } from '../utils/shape'
+import { alignGraphToPortTracks, snapToPortTrack } from '../utils/nodeGeometry'
 
 type HistorySnapshot = {
   graph: Graph
@@ -26,13 +27,14 @@ interface GraphState {
   updateNodeParams: (nodeId: string, params: Record<string, any>) => void
   updateNodeLabel: (nodeId: string, label: string) => void
   updateNodeStyle: (nodeId: string, style: Partial<NodeStyle>) => void
-  updatePortShape: (nodeId: string, portType: 'inputs' | 'outputs', portId: string, shapeStr: string) => void
+  updatePortShape: (nodeId: string, portType: 'inputs' | 'outputs', portId: string, shapeStr: string, recordHistory?: boolean) => void
   updatePortName: (nodeId: string, portType: 'inputs' | 'outputs', portId: string, name: string) => void
   selectNode: (nodeId: string | null) => void
   selectEdge: (edgeId: string | null) => void
   updateEdgeStyle: (edgeId: string, style: Record<string, any>) => void
   setInitialShape: (shape: string) => void
-  runShapeInference: () => void
+  runShapeInference: (validate?: boolean) => void
+  clearValidationErrors: () => void
   addCustomOperator: (op: CustomOperatorDef) => void
   removeCustomOperator: (id: string) => void
   moveNodeToBack: (nodeId: string) => void
@@ -138,7 +140,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     _skipSnapshot = true
     try {
       set({
-        graph: prev.graph,
+        graph: alignGraphToPortTracks(prev.graph),
         initialShape: prev.initialShape,
         customOperators: prev.customOperators,
         selectedNodeId: null,
@@ -164,7 +166,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     _skipSnapshot = true
     try {
       set({
-        graph: next.graph,
+        graph: alignGraphToPortTracks(next.graph),
         initialShape: next.initialShape,
         customOperators: next.customOperators,
         selectedNodeId: null,
@@ -178,13 +180,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }
   },
 
-  setGraph: (graph: Graph) => set({ graph }),
+  setGraph: (graph: Graph) => set({ graph: alignGraphToPortTracks(graph) }),
 
   loadCanvasState: ({ graph, initialShape, customOperators }) => {
     _undoStack = []
     _redoStack = []
     set({
-      graph,
+      graph: alignGraphToPortTracks(graph),
       initialShape,
       customOperators,
       selectedNodeId: null,
@@ -197,7 +199,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   addNode: (node: Node) => {
     get().pushSnapshot()
     set(state => ({
-      graph: { ...state.graph, nodes: [...state.graph.nodes, node] }
+      graph: alignGraphToPortTracks({ ...state.graph, nodes: [...state.graph.nodes, node] })
     }))
   },
 
@@ -254,8 +256,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     }))
   },
 
-  updatePortShape: (nodeId: string, portType: 'inputs' | 'outputs', portId: string, shapeStr: string) => {
-    get().pushSnapshot()
+  updatePortShape: (nodeId: string, portType: 'inputs' | 'outputs', portId: string, shapeStr: string, recordHistory = true) => {
+    if (recordHistory) get().pushSnapshot()
     set(state => {
       const newShape = parseShape(shapeStr)
       return {
@@ -311,7 +313,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
             return { ...n, data: newData }
           })
-        }
+        },
+        errors: {}
       }
     })
   },
@@ -359,7 +362,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   setInitialShape: (shape: string) => {
     get().pushSnapshot()
-    set({ initialShape: shape })
+    set({ initialShape: shape, errors: {} })
   },
 
   addCustomOperator: (op: CustomOperatorDef) => {
@@ -405,13 +408,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       graph: {
         ...state.graph,
         nodes: state.graph.nodes.map(n =>
-          n.id === nodeId ? { ...n, position } : n
+          n.id === nodeId ? { ...n, position: { x: snapToPortTrack(position.x), y: snapToPortTrack(position.y) } } : n
         )
       }
     }))
   },
 
-  runShapeInference: () => {
+  runShapeInference: (validate = false) => {
     const { graph, initialShape } = get()
 
     const parsedShape = parseShape(initialShape)
@@ -541,7 +544,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
           data: updatedNodeData
         })
 
-        if (currentNode.runtime.validate) {
+        if (validate && currentNode.runtime.validate) {
           const nodeErrors = currentNode.runtime.validate(allInputTensors, updatedNodeData.params)
           if (nodeErrors.length > 0) {
             errors[node.id] = nodeErrors
@@ -557,7 +560,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         nodes: Array.from(nodeMap.values()),
         edges: graph.edges
       },
-      errors
+      errors: validate ? errors : {}
     })
-  }
+  },
+
+  clearValidationErrors: () => set({ errors: {} })
 }))

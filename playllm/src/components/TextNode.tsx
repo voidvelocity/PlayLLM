@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Handle, Position } from 'reactflow'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -42,7 +43,27 @@ const renderContent = (label: string): string => {
 
 const TextNode = ({ id, data, selected }: TextNodeProps) => {
   const selectNode = useGraphStore(state => state.selectNode)
+  const updateNodeParams = useGraphStore(state => state.updateNodeParams)
+  const content = String(data.params.content ?? data.label)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(content)
+  const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const s = data.style || {}
+
+  useEffect(() => {
+    if (!editing) setDraft(content)
+  }, [content, editing])
+
+  useEffect(() => {
+    if (!editing) return
+    editorRef.current?.focus()
+    editorRef.current?.select()
+  }, [editing])
+
+  const commit = () => {
+    if (draft !== content) updateNodeParams(id, { content: draft })
+    setEditing(false)
+  }
 
   const w = s.width || 120
   const h = s.height || 32
@@ -56,13 +77,18 @@ const TextNode = ({ id, data, selected }: TextNodeProps) => {
   return (
     <div
       onClick={() => selectNode(id)}
+      onDoubleClick={event => {
+        event.stopPropagation()
+        selectNode(id)
+        setEditing(true)
+      }}
       style={{
         width: w,
         height: h,
         backgroundColor: fillColor,
         border: selected ? '2px solid #3b82f6' : '1px dashed transparent',
         position: 'relative',
-        cursor: 'pointer',
+        cursor: editing ? 'text' : 'pointer',
         padding: '4px 8px',
         boxSizing: 'border-box',
         display: 'flex',
@@ -103,21 +129,58 @@ const TextNode = ({ id, data, selected }: TextNodeProps) => {
         />
       ))}
 
-      <div
-        style={{
-          color: fontColor,
-          fontSize,
-          fontFamily,
-          fontWeight,
-          textAlign,
-          whiteSpace: 'pre-wrap',
-          overflow: 'hidden',
-          wordBreak: 'break-word',
-          width: '100%',
-          lineHeight: 1.2
-        }}
-        dangerouslySetInnerHTML={{ __html: renderContent(data.label) }}
-      />
+      {editing ? (
+        <textarea
+          ref={editorRef}
+          value={draft}
+          onChange={event => setDraft(event.target.value)}
+          onBlur={commit}
+          onPointerDown={event => event.stopPropagation()}
+          onDoubleClick={event => event.stopPropagation()}
+          onKeyDown={event => {
+            if (event.key === 'Escape') {
+              setDraft(content)
+              setEditing(false)
+            } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.currentTarget.blur()
+            }
+          }}
+          className="nodrag nowheel"
+          aria-label="Edit text content"
+          style={{
+            width: '100%',
+            height: '100%',
+            resize: 'none',
+            border: 0,
+            outline: 0,
+            padding: 0,
+            color: fontColor,
+            background: 'transparent',
+            fontSize,
+            fontFamily,
+            fontWeight,
+            textAlign,
+            lineHeight: 1.2
+          }}
+        />
+      ) : (
+        <div
+          title="Double-click to edit"
+          style={{
+            color: fontColor,
+            fontSize,
+            fontFamily,
+            fontWeight,
+            textAlign,
+            whiteSpace: 'pre-wrap',
+            overflow: 'hidden',
+            wordBreak: 'break-word',
+            width: '100%',
+            lineHeight: 1.2
+          }}
+          dangerouslySetInnerHTML={{ __html: renderContent(content) }}
+        />
+      )}
     </div>
   )
 }

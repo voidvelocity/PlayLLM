@@ -13,6 +13,7 @@ import { createEmbeddingNode } from './embedding'
 import { createTransposeNode } from './transpose'
 import { createMatMulNode } from './matmul'
 import { createSoftmaxNode } from './softmax'
+import { createCommunicationNode, CommunicationOperatorType } from './communication'
 import { DEFAULT_FFN_DIM, DEFAULT_LINEAR_IN, DEFAULT_TENSOR_SHAPE } from '../utils/shapeSymbols'
 
 type NodeCreator = (id: string, position: { x: number; y: number }, ...args: any[]) => Node
@@ -35,6 +36,10 @@ export const nodeCreators: Record<string, NodeCreator> = {
   'Transpose': createTransposeNode,
   'MatMul': (id, pos) => createMatMulNode(id, pos, [['B', 'N', 'H'], ['B', 'H', 'K']]),
   'Softmax': createSoftmaxNode,
+  'AllReduce': (id, pos) => createCommunicationNode(id, pos, 'AllReduce'),
+  'ReduceScatter': (id, pos) => createCommunicationNode(id, pos, 'ReduceScatter'),
+  'AllGather': (id, pos) => createCommunicationNode(id, pos, 'AllGather'),
+  'All2All': (id, pos) => createCommunicationNode(id, pos, 'All2All'),
   'Custom': createCustomNode,
   'Rect': createRectNode,
   'Text': createTextNode,
@@ -45,7 +50,7 @@ export const nodeCreators: Record<string, NodeCreator> = {
 }
 
 export const nodeCategories: Record<string, string[]> = {
-  'Operators': ['Linear', 'Embedding', 'Activation', 'Norm', 'Concat', 'Split', 'ElementWise', 'EinSum', 'Reshape', 'Transpose', 'MatMul', 'Softmax'],
+  'Operators': ['Linear', 'Embedding', 'Activation', 'Norm', 'Concat', 'Split', 'ElementWise', 'EinSum', 'Reshape', 'Transpose', 'MatMul', 'Softmax', 'AllReduce', 'ReduceScatter', 'AllGather', 'All2All'],
   'Data': ['Scalar', 'Vector', 'Matrix', 'Tensor'],
   'Annotations': ['Rect', 'Text']
 }
@@ -67,6 +72,10 @@ export const nodeColorMap: Record<string, string> = {
   'Transpose': '#ec4899',
   'MatMul': '#f97316',
   'Softmax': '#14b8a6',
+  'AllReduce': '#2563eb',
+  'ReduceScatter': '#7c3aed',
+  'AllGather': '#0891b2',
+  'All2All': '#db2777',
   'Custom': '#78716c',
   'Rect': '#94a3b8',
   'Text': '#a1a1aa'
@@ -107,6 +116,10 @@ export const getNodeConfig = (type: string): NodeConfig | null => {
     'Transpose': { label: 'Transpose', nodeType: 'Transpose', defaultParams: { perm: [0, 2, 1] }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
     'MatMul': { label: 'MatMul', nodeType: 'MatMul', defaultParams: {}, defaultInputShapes: [['B', 'N', 'H'], ['B', 'H', 'K']] },
     'Softmax': { label: 'Softmax', nodeType: 'Softmax', defaultParams: { axis: -1 }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
+    'AllReduce': { label: 'AllReduce', nodeType: 'AllReduce', defaultParams: { operation: 'sum', group: 'world' }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
+    'ReduceScatter': { label: 'ReduceScatter', nodeType: 'ReduceScatter', defaultParams: { operation: 'sum', axis: 0, group: 'world' }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
+    'AllGather': { label: 'AllGather', nodeType: 'AllGather', defaultParams: { axis: 0, group: 'world' }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
+    'All2All': { label: 'All2All', nodeType: 'All2All', defaultParams: { split_axis: 0, concat_axis: 0, group: 'world' }, defaultInputShape: [...DEFAULT_LINEAR_IN] },
     'Rect': { label: 'Rectangle', nodeType: 'Rect', defaultParams: {} },
     'Text': { label: 'Text', nodeType: 'Text', defaultParams: {} }
   }
@@ -138,7 +151,7 @@ export const getOperatorDefinitions = (customOperators: CustomOperatorDef[]): Op
     id: op.id,
     label: op.label,
     nodeType: 'Custom',
-    color: nodeColorMap.Custom,
+    color: op.color || nodeColorMap.Custom,
     source: 'custom' as const,
     customOpId: op.id
   }))
@@ -283,6 +296,17 @@ export const createNodeFromSnapshot = (snapshot: SavedGraphNode): Node | null =>
         data.params.axis ?? -1
       )
       break
+    case 'AllReduce':
+    case 'ReduceScatter':
+    case 'AllGather':
+    case 'All2All':
+      baseNode = createCommunicationNode(
+        id,
+        position,
+        data.nodeType as CommunicationOperatorType,
+        inputShapes[0] || [...DEFAULT_LINEAR_IN]
+      )
+      break
     case 'Custom':
       baseNode = createCustomNode(id, position, data.label, data.inputs.length, data.outputs.length)
       break
@@ -290,6 +314,9 @@ export const createNodeFromSnapshot = (snapshot: SavedGraphNode): Node | null =>
       baseNode = createRectNode(id, position)
       break
     case 'Text':
+      if (data.params.content === undefined) {
+        data.params = { ...data.params, content: data.label }
+      }
       baseNode = createTextNode(id, position)
       break
     default:
@@ -310,21 +337,19 @@ export function createCustomNode(
   position: { x: number; y: number },
   label: string = 'Custom',
   inputCount: number = 1,
-  outputCount: number = 1
+  outputCount: number = 1,
+  inputNames?: string[],
+  outputNames?: string[]
 ): Node {
   const inputs: Port[] = Array.from({ length: inputCount }, (_, i) => ({
-    id: `in_${i}`, name: `in_${i}`, type: 'input' as const
+    id: `in_${i}`, name: inputNames?.[i] || `in_${i}`, type: 'input' as const
   }))
   const outputs: Port[] = Array.from({ length: outputCount }, (_, i) => ({
-    id: `out_${i}`, name: `out_${i}`, type: 'output' as const
+    id: `out_${i}`, name: outputNames?.[i] || `out_${i}`, type: 'output' as const
   }))
 
   const runtime: NodeRuntime = {
-    infer: (ins: TensorSpec[]) => {
-      return Array.from({ length: outputCount }, () =>
-        ins.length > 0 ? { ...ins[0] } : { shape: ['?'], dtype: 'float32' }
-      )
-    },
+    infer: () => Array.from({ length: outputCount }, () => ({ shape: ['?'], dtype: 'float32' })),
     validate: () => []
   }
 
@@ -373,7 +398,7 @@ export function createTextNode(
       nodeType: 'Text',
       inputs: [],
       outputs: [],
-      params: {},
+      params: { content: 'Text' },
       style: {
         width: 120,
         height: 32,
